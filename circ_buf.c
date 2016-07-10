@@ -59,7 +59,7 @@ int buf_pop_byte(volatile circ_buf_t * b, size_t * level)
             b->size -= 1;
             if(b->idx >= b->max_size)
             {
-                b->idx -= b->max_size;
+                b->idx = 0;
             }
 
             *level = b->size;

@@ -30,7 +30,7 @@ void _uart_init(uart_t * uart,
 
     /* Stop UART until configured */
     *uart->ucsrb = 0;
-    *uart->ucsra = 0; /* Use 8x divider instead of 16x, allows lower error 115200 baud rate */
+    *uart->ucsra = 0;
     *uart->ucsrc = _BV(UCSZ01) | _BV(UCSZ00); /* UART 8N1 */
 
     /* Drain Rx FIFO */
