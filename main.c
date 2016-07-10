@@ -11,7 +11,7 @@ int main(void)
     uart_init(&u0, 0, 
         sizeof(rx_buf), rx_buf,
         sizeof(tx_buf), tx_buf);
-    uart_set_baudrate(&u0, 9600);
+    uart_set_baudrate(&u0, 250000);
     uart_enable(&u0);
 
     sei();
@@ -21,6 +21,15 @@ int main(void)
         int ret = uart_recv_byte(&u0);
         if(ret >= 0)
         {
+            if(u0.rx_overflow)
+            {
+                uart_send_byte(&u0, 'o');
+            }
+
+            if(u0.frame_error)
+            {
+                uart_send_byte(&u0, 'f');
+            }
             uart_send_byte(&u0, ret);
         }
     }

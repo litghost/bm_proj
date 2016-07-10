@@ -30,7 +30,7 @@ void _uart_init(uart_t * uart,
 
     /* Stop UART until configured */
     *uart->ucsrb = 0;
-    *uart->ucsra = 0;
+    *uart->ucsra = _BV(U2X0); /* Use 8x divider instead of 16x for higher baud rates *//
     *uart->ucsrc = _BV(UCSZ01) | _BV(UCSZ00); /* UART 8N1 */
 
     /* Drain Rx FIFO */
@@ -99,40 +99,14 @@ void _uart_set_hardware_flow(uart_t * uart,
     uart_set_rts(uart, false);
 }
 
-int uart_set_baudrate(uart_t * uart, long baudrate)
+int uart_set_baudrate(uart_t * uart, long baud)
 {
     uart_disable(uart);
 
-    switch(baudrate)
-    {
-#define BAUD 9600
-    case BAUD:
-#include <util/setbaud.h>
-        *uart->ubrrh = UBRRH_VALUE;
-        *uart->ubrrl = UBRRL_VALUE;
-#if USE_2X
-        *uart->ucsra |= _BV(U2X0);
-#else
-        *uart->ucsra &= ~_BV(U2X0);
-#endif
-#undef BAUD
-        break;
+    uint32_t reg = F_CPU/8/baud - 1;
 
-#define BAUD 57600
-    case BAUD:
-#include <util/setbaud.h>
-        *uart->ubrrh = UBRRH_VALUE;
-        *uart->ubrrl = UBRRL_VALUE;
-#if USE_2X
-        *uart->ucsra |= _BV(U2X0);
-#else
-        *uart->ucsra &= ~_BV(U2X0);
-#endif
-#undef BAUD
-        break;
-    default:
-        return -1;
-    }
+    *uart->ubrrl = (reg >> 0) & 0xFF;
+    *uart->ubrrh = (reg >> 8) & 0xFF;
 
     return 0;
 }
