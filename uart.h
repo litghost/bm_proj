@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include "circ_buf.h"
 #include <avr/io.h>
 
@@ -69,5 +70,6 @@ void uart_service(uart_t * uart);
 
 int uart_recv_byte(uart_t * uart);
 int uart_send_byte(uart_t * uart, uint8_t b);
+bool uart_tx_done(uart_t * uart);
 
 #endif /* _UART_H_ */

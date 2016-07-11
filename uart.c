@@ -1,6 +1,7 @@
 #include "uart.h"
 
 #include <avr/interrupt.h>
+#include <util/atomic.h>
 #include <stdbool.h>
 #include <string.h>
 #include <assert.h>
@@ -30,7 +31,7 @@ void _uart_init(uart_t * uart,
 
     /* Stop UART until configured */
     *uart->ucsrb = 0;
-    *uart->ucsra = _BV(U2X0); /* Use 8x divider instead of 16x for higher baud rates *//
+    *uart->ucsra = _BV(U2X0); /* Use 8x divider instead of 16x for higher baud rates */
     *uart->ucsrc = _BV(UCSZ01) | _BV(UCSZ00); /* UART 8N1 */
 
     /* Drain Rx FIFO */
@@ -200,6 +201,9 @@ void uart_tx_interrupt(int n)
     else
     {
         *uart->udr = (uint8_t)ret;
+
+        /* Just started a new transmition, clear TX complete */
+        *uart->ucsra &= ~_BV(TXC0);
     }
 }
 
@@ -260,4 +264,18 @@ int uart_send_byte(uart_t * uart, uint8_t b)
     *uart->ucsrb |= _BV(UDRIE0);
 
     return ret;
+}
+
+bool uart_tx_done(uart_t * uart)
+{
+    int level;
+    uint8_t ucsra;
+    ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+    {
+        level = buf_get_level(&uart->tx_buf);
+        ucsra = *uart->ucsra;
+    }
+
+    /* Both TX FIFO being empty and TXC0 bit being set */
+    return level == 0 && (ucsra & TXC0) == TXC0;
 }

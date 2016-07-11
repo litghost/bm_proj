@@ -24,4 +24,11 @@ int buf_push_byte(volatile circ_buf_t * b, uint8_t c, size_t * level);
  * \return Return 0-UINT8_MAX if pop works, <0 otherwise */
 int buf_pop_byte(volatile circ_buf_t * b, size_t * level);
 
+/*! Get buffer level.  Only use if not planning on adding or removing bytes based on info
+ *
+ * This function is not atomic with push or pop (for obvious reasons) */
+static inline int buf_get_level(volatile circ_buf_t * b) {
+    return b->size;
+}
+
 #endif /* _CIRC_BUF_H_ */
