@@ -1,12 +1,15 @@
-#include "uart.h"
 #include <stdbool.h>
 #include <avr/interrupt.h>
 #include <stdio.h>
+#include <string.h>
+
+#include "uart.h"
 #include "swtimer.h"
+#include "neopixel_drive.h"
 
 static uart_t u0;
-static uint8_t tx_buf[32];
-static uint8_t rx_buf[32];
+static uint8_t tx0_buf[32];
+static uint8_t rx0_buf[32];
 
 int uart0_put(char c, FILE *f)
 {
@@ -21,44 +24,38 @@ int uart0_put(char c, FILE *f)
 
 static FILE mystdout = FDEV_SETUP_STREAM(uart0_put, NULL, _FDEV_SETUP_WRITE);
 
+uint8_t pix_buf[BUF_SIZE(8, WS2812_RBG)];
+
 int main(void)
 {
+    stdout = &mystdout;
+
+    swtimer_setup();
+
     uart_init(&u0, 0, 
-        sizeof(rx_buf), rx_buf,
-        sizeof(tx_buf), tx_buf);
+        sizeof(rx0_buf), rx0_buf,
+        sizeof(tx0_buf), tx0_buf);
     uart_set_baudrate(&u0, 19200);
     uart_enable(&u0);
-    swtimer_setup();
+
+    neo_drive_t d;
+    neo_drive_init(&d, 80, &PORTD, &DDRD, _BV(3));
 
     sei();
 
-	fprintf(&mystdout, "hello world!\n");
-	//printf("hello world!\n");
-
     swtimer_t t;
-    swtimer_set(&t, 1000000);
+    swtimer_set(&t, 100);
 
+    uint8_t x = 0;
     while(true)
     {
-        if(swtimer_is_expired(&t))
-        {
-            fprintf(&mystdout, "It is now %lu\n", swtimer_now_usec());
-            swtimer_set(&t, 1000000);
-        }
+        memset(pix_buf, x, sizeof(pix_buf));
+        neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
+        while(neo_drive_service(&d) != NEO_COMPLETE) {}
 
-        int ret = uart_recv_byte(&u0);
-        if(ret >= 0)
-        {
-            if(u0.rx_overflow)
-            {
-                uart_send_byte(&u0, 'o');
-            }
+        while(!swtimer_is_expired(&t)) {}
+        swtimer_set(&t, 1000);
 
-            if(u0.frame_error)
-            {
-                uart_send_byte(&u0, 'f');
-            }
-            uart_send_byte(&u0, ret);
-        }
+        x += 1;
     }
 }

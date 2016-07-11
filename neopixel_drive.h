@@ -7,7 +7,7 @@
 typedef uint32_t pixel_format_t;
 
 #define PIX_FORMAT(R, G, B, W) \
-        ((R << 0) | (G << 8) | (B << 16) | (W << 24))
+        (((uint32_t)R << 0lu) | ((uint32_t)G << 8lu) | ((uint32_t)B << 16lu) | ((uint32_t)W << 24lu))
 
 #define NO_PIX 0xFF
 
@@ -38,8 +38,6 @@ typedef enum {
 
 typedef struct
 {
-    uart_t * uart;
-
     size_t buf_size;
     uint8_t * buf;
 
@@ -49,13 +47,13 @@ typedef struct
 
     bool show_pending;
     swtimer_t timer;
-    uint8_t reset_period; /* Number of microseconds to wait before next cycle */
+    uint16_t reset_period; /* Number of microseconds to wait before next cycle */
 } neo_drive_t;
 
-void neo_drive_init(neo_drive_t * d, uart_t * uart, uint8_t reset_period, volatile uint8_t * port, volatile uint8_t * ddr, uint8_t pinmask);
+void neo_drive_init(neo_drive_t * d, uint16_t reset_period, volatile uint8_t * port, volatile uint8_t * ddr, uint8_t pinmask);
 
 /*! Starts a drive if not already started */
-void neo_drive_start_show(neo_drive_t * d, size_t buf_size, void * buf);
+int neo_drive_start_show(neo_drive_t * d, size_t buf_size, void * buf);
 
 /*! Get status of drive FSM */
 neo_drive_status_t neo_drive_service(neo_drive_t * d); 
