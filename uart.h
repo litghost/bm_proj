@@ -71,5 +71,6 @@ void uart_service(uart_t * uart);
 int uart_recv_byte(uart_t * uart);
 int uart_send_byte(uart_t * uart, uint8_t b);
 bool uart_tx_done(uart_t * uart);
+void uart_set_rts(uart_t * uart, bool rts);
 
 #endif /* _UART_H_ */

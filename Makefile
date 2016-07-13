@@ -1,5 +1,22 @@
-bm_proj.elf: main.c uart.c uart.h circ_buf.c circ_buf.h neopixel_drive.c neopixel_drive.h swtimer.c swtimer.h
-	avr-gcc -g -Os -std=gnu99 -mmcu=atmega2560 main.c uart.c circ_buf.c neopixel_drive.c swtimer.c -DF_CPU=16000000UL -Wall -Werror -o bm_proj.elf
+XBEE_LIB = ../xbee_lib
+
+HEADERS = \
+	uart.h \
+	circ_buf.h \
+	neopixel_drive.h \
+	swtimer.h \
+	$(XBEE_LIB)/xbee.h \
+
+SRCS = \
+	main.c \
+	uart.c \
+	circ_buf.c \
+	neopixel_drive.c \
+	swtimer.c \
+	$(XBEE_LIB)/xbee.c \
+
+bm_proj.elf: $(HEADERS) $(SRCS)
+	avr-gcc -I$(XBEE_LIB) -g -Os -std=gnu99 -mmcu=atmega2560 $(SRCS) -DF_CPU=16000000UL -Wall -Werror -o bm_proj.elf
 	avr-size bm_proj.elf
 
 .PHONY: size

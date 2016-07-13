@@ -43,14 +43,14 @@ void _uart_init(uart_t * uart,
     uarts[uart_num] = NULL;
 }
 
-static inline void uart_set_rts(uart_t * uart, bool rts)
+void uart_set_rts(uart_t * uart, bool rts)
 {
     if(!uart->port_rts) 
     {
         return;
     }
 
-    /* Low means asserted, so invert */
+    /* Low means request to send, so invert */
     if(!rts)
     {
         *uart->port_rts |= _BV(uart->iport_rts);
@@ -61,19 +61,19 @@ static inline void uart_set_rts(uart_t * uart, bool rts)
     }
 }
 
-static inline int uart_cts(uart_t * uart)
+static inline bool uart_cts(uart_t * uart)
 {
     if(!uart->pin_cts)
     {
         /* No HW flow, always clear to send */
-        return 1;
+        return true;
     }
     else
     {
         uint8_t v = *uart->pin_cts & _BV(uart->ipin_cts);
 
-        /* Low means asserted, so invert */
-        return !(v != 0);
+        /* Low means clear to send */
+        return v == 0;
     }
 }
 
@@ -90,6 +90,7 @@ void _uart_set_hardware_flow(uart_t * uart,
 
     /* Make RTS output */
     *ddr_rts |= _BV(iport_rts);
+    *port_rts &= ~_BV(iport_rts);
 
     uart->ipin_cts = ipin_cts;
     uart->pin_cts = pin_cts;
@@ -185,7 +186,7 @@ void uart_tx_interrupt(int n)
     }
 
     /* Stop transmitting if not clear to send */
-    if(!uart_cts(uart))
+    if(uart_cts(uart) == 0)
     {
         *uart->ucsrb &= ~_BV(UDRIE0);
     }

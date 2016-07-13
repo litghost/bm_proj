@@ -6,10 +6,19 @@
 #include "uart.h"
 #include "swtimer.h"
 #include "neopixel_drive.h"
+#include "xbee.h"
 
 static uart_t u0;
 static uint8_t tx0_buf[32];
 static uint8_t rx0_buf[32];
+
+static uart_t u3;
+static uint8_t tx3_buf[256];
+static uint8_t rx3_buf[128];
+
+static xbee_interface_t xbee;
+static xbee_uart_interface_t xbee_uart;
+static uint8_t xbee_buf[256];
 
 int uart0_put(char c, FILE *f)
 {
@@ -26,6 +35,55 @@ static FILE mystdout = FDEV_SETUP_STREAM(uart0_put, NULL, _FDEV_SETUP_WRITE);
 
 uint8_t pix_buf[BUF_SIZE(8, WS2812_RBG)];
 
+static int xbee_uart_write(void * ptr, const void * buf, size_t n)
+{
+    uart_t * u = (uart_t*)ptr;
+    const uint8_t * b = buf;
+
+    int sent = n;
+    for(size_t i = 0; i < n; ++i)
+    {
+        int ret = uart_send_byte(u, b[i]);
+        if(ret < 0)
+        {
+            sent = i;
+            break;
+        }
+    }
+
+    return sent;
+} 
+
+int xbee_uart_read(void * ptr, void *buf, size_t nbyte)
+{
+    uart_t * u = (uart_t*)ptr;
+    uint8_t * b = buf;
+
+    size_t recv = nbyte;
+    for(size_t i = 0; i < nbyte; ++i)
+    {
+        int ret = uart_recv_byte(u);
+        if(ret < 0)
+        {
+            recv = i;
+            break;
+        }
+
+        b[i] = ret;
+    }
+
+    return recv;
+
+}
+
+unsigned xbee_sleep(unsigned sec)
+{
+    uint32_t expire = swtimer_now_msec() + sec*1000;
+    while(swtimer_now_msec() < expire) {};
+
+    return 0;
+}
+
 int main(void)
 {
     stdout = &mystdout;
@@ -38,24 +96,48 @@ int main(void)
     uart_set_baudrate(&u0, 19200);
     uart_enable(&u0);
 
+    uart_init(&u3, 3, 
+        sizeof(rx3_buf), rx3_buf,
+        sizeof(tx3_buf), tx3_buf);
+    uart_set_baudrate(&u3, 9600);
+    uart_set_hardware_flow(&u3, E, 3, G, 5);
+    uart_enable(&u3);
+
     neo_drive_t d;
     neo_drive_init(&d, 80, &PORTD, &DDRD, _BV(3));
 
     sei();
 
+    memset(pix_buf, 0x00, sizeof(pix_buf));
+    neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
+    while(neo_drive_service(&d) != NEO_COMPLETE) {}
+
+    xbee_uart.ptr = &u3;
+    xbee_uart.write = xbee_uart_write;
+    xbee_uart.read = xbee_uart_read;
+    xbee_uart.sleep = xbee_sleep;
+
+    printf("Reseting Xbee\n");
+
+    PORTH &= ~_BV(3);
+    DDRH |= _BV(3);
+
     swtimer_t t;
-    swtimer_set(&t, 100);
+    swtimer_set(&t, 1000000);
+    while(swtimer_is_expired(&t) == 0) {};
 
-    uint8_t x = 0;
-    while(true)
+    PORTH &= ~_BV(3);
+    DDRH &= ~_BV(3);
+
+    printf("Initing Xbee\n");
+
+    int ret = xbee_open(&xbee, &xbee_uart, sizeof(xbee_buf), xbee_buf);
+    if(ret < 0)
     {
-        memset(pix_buf, x, sizeof(pix_buf));
-        neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
-        while(neo_drive_service(&d) != NEO_COMPLETE) {}
-
-        while(!swtimer_is_expired(&t)) {}
-        swtimer_set(&t, 1000);
-
-        x += 1;
+        printf("Failed to init xbee! %d\n", ret);
     }
+
+    printf("Init complete! tx level = %d CTS pin %d\n", buf_get_level(&u3.tx_buf), *u3.pin_cts & _BV(u3.ipin_cts));
+
+    while(true) {}
 }
