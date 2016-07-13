@@ -19,6 +19,8 @@ static uint8_t rx3_buf[128];
 static xbee_interface_t xbee;
 static xbee_uart_interface_t xbee_uart;
 static uint8_t xbee_buf[256];
+static uint8_t frame[128];
+static xbee_parsed_frame_t parsed_frame;
 
 int uart0_put(char c, FILE *f)
 {
@@ -139,5 +141,52 @@ int main(void)
 
     printf("Init complete! tx level = %d CTS pin %d\n", buf_get_level(&u3.tx_buf), *u3.pin_cts & _BV(u3.ipin_cts));
 
-    while(true) {}
+    while(true) {
+        uart_service(&u0);
+        uart_service(&u3);
+
+        ret = xbee_recv_frame(&xbee, sizeof(frame), frame);
+        if(ret > 0)
+        {
+            
+            int parse = xbee_parse_frame(&parsed_frame, ret, frame);
+            if(parse != 0)
+            {
+                printf("Parse error %d, frame len %d api id %d\n", parse, ret, frame[0]);
+            }
+
+            switch(parsed_frame.api_id)
+            {
+            case XBEE_RECEIVE_16_BIT:
+            case XBEE_RECEIVE:
+                printf("Reflecting message with length %d\n", parsed_frame.frame.receive.packet_size);
+                xbee_address_t addr;
+                if(parsed_frame.api_id == XBEE_RECEIVE)
+                {
+                    addr.type = XBEE_64_BIT;
+                    addr.addr.address = parsed_frame.frame.receive.responder_address;
+                }
+                else
+                {
+                    addr.type = XBEE_16_BIT;
+                    addr.addr.network_address = parsed_frame.frame.receive.responder_network_address;
+                }
+
+                ret = xbee_transmit(&xbee, 1, &addr, 0, 
+                        parsed_frame.frame.receive.packet_size, 
+                        parsed_frame.frame.receive.packet_data);
+                if(ret != 0)
+                {
+                    printf("Failed to reflect transmission, ret = %d\n", ret);
+                }
+
+                break;
+            case XBEE_TRANSMIT_STATUS:
+                printf("Tx status %d\n", parsed_frame.frame.status);
+                break;
+            default:
+                printf("Got API %d\n", parsed_frame.api_id);
+            }
+        }
+    }
 }
