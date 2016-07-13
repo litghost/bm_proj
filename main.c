@@ -139,12 +139,20 @@ int main(void)
         printf("Failed to init xbee! %d\n", ret);
     }
 
+    uint8_t b[2] = {0xFF, 0xFF};
+    ret = xbee_at_command(&xbee, 2, "MY", 2, b);
+    if(ret < 0)
+    {
+        printf("Failed to send MY AT command, ret = %d\n", ret);
+    }
+
     printf("Init complete! tx level = %d CTS pin %d\n", buf_get_level(&u3.tx_buf), *u3.pin_cts & _BV(u3.ipin_cts));
 
     while(true) {
         uart_service(&u0);
         uart_service(&u3);
 
+        memset(frame, 0, sizeof(frame));
         ret = xbee_recv_frame(&xbee, sizeof(frame), frame);
         if(ret > 0)
         {
@@ -159,7 +167,7 @@ int main(void)
             {
             case XBEE_RECEIVE_16_BIT:
             case XBEE_RECEIVE:
-                printf("Reflecting message with length %d\n", parsed_frame.frame.receive.packet_size);
+                printf("Reflecting message with length %d (API %d)\n", parsed_frame.frame.receive.packet_size, parsed_frame.api_id);
                 xbee_address_t addr;
                 if(parsed_frame.api_id == XBEE_RECEIVE)
                 {
@@ -172,7 +180,7 @@ int main(void)
                     addr.addr.network_address = parsed_frame.frame.receive.responder_network_address;
                 }
 
-                ret = xbee_transmit(&xbee, 1, &addr, 0, 
+                ret = xbee_transmit(&xbee, 5, &addr, 0, 
                         parsed_frame.frame.receive.packet_size, 
                         parsed_frame.frame.receive.packet_data);
                 if(ret != 0)
@@ -182,7 +190,7 @@ int main(void)
 
                 break;
             case XBEE_TRANSMIT_STATUS:
-                printf("Tx status %d\n", parsed_frame.frame.status);
+                printf("Tx status %d %d\n", parsed_frame.frame_id, parsed_frame.frame.status);
                 break;
             default:
                 printf("Got API %d\n", parsed_frame.api_id);
