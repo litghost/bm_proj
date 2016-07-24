@@ -16,7 +16,7 @@ SRCS = \
 	$(XBEE_LIB)/xbee.c \
 
 bm_proj.elf: $(HEADERS) $(SRCS)
-	avr-gcc -I$(XBEE_LIB) -g -Os -std=gnu99 -mmcu=atmega2560 $(SRCS) -DF_CPU=16000000UL -Wall -Werror -o bm_proj.elf -Wl,--defsym,boot_program_page=0x000000000003e488
+	avr-gcc -I$(XBEE_LIB) -g -Os -std=gnu99 -mmcu=atmega2560 $(SRCS) -DF_CPU=16000000UL -Wall -Werror -o bm_proj.elf -Wl,--defsym,boot_program_page=0x3e488 -Wl,--defsym,start_app=0x10000
 	avr-size bm_proj.elf
 
 .PHONY: size

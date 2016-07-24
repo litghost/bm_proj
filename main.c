@@ -3,11 +3,14 @@
 #include <avr/pgmspace.h>
 #include <stdio.h>
 #include <string.h>
+#include <util/crc16.h>
+#include <util/delay.h>
 
 #include "uart.h"
 #include "swtimer.h"
 #include "neopixel_drive.h"
 #include "xbee.h"
+#include "wireless_protocol.h"
 
 static uart_t u0;
 static uint8_t tx0_buf[32];
@@ -21,6 +24,7 @@ static xbee_interface_t xbee;
 static xbee_uart_interface_t xbee_uart;
 static uint8_t xbee_buf[256];
 static uint8_t frame[128];
+static char tmp_buf[64];
 static xbee_parsed_frame_t parsed_frame;
 
 int uart0_put(char c, FILE *f)
@@ -90,7 +94,112 @@ unsigned xbee_sleep(unsigned sec)
 
 #include "wireless_bootloader/write_page.h"
 
+extern int start_app(void) __attribute__((noreturn));
+
 uint16_t page_buf[SPM_PAGESIZE];
+
+static void send_reply(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame, const char * reply)
+{
+    xbee_address_t addr;
+    if(parsed_frame->api_id == XBEE_RECEIVE)
+    {
+        addr.type = XBEE_64_BIT;
+        addr.addr.address = parsed_frame->frame.receive.responder_address;
+    }
+    else
+    {
+        addr.type = XBEE_16_BIT;
+        addr.addr.network_address = parsed_frame->frame.receive.responder_network_address;
+    }
+
+    size_t reply_size = strlen(reply);
+    int ret = xbee_transmit(xbee, 5, &addr, 0,  reply_size, reply);
+    if(ret != 0)
+    {
+        printf("Failed to send reply, ret = %d!\n", ret);
+    }
+}
+
+#define REPLY(msg) send_reply(xbee, parsed_frame, msg "\r\n");
+
+static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame)
+{
+    size_t packet_size = parsed_frame->frame.receive.packet_size;
+    const uint8_t * packet_data = parsed_frame->frame.receive.packet_data;
+
+    printf("Got frame of size %d\n", packet_size);
+    if(packet_size == 0)
+    {
+        REPLY("hi");
+    }
+
+    switch(packet_data[0])
+    {
+    case OP_NOP:
+        REPLY("stage0");
+        break;
+    case OP_WRITE_PAGE_BUF:
+        if(packet_size != 2+BYTES_PER_WRITE_PAGE)
+        {
+            REPLY("write page wrong size");
+            return;
+        }
+
+        uint8_t offset = packet_data[1];
+        if(offset + BYTES_PER_WRITE_PAGE > sizeof(page_buf))
+        {
+            REPLY("write page OOB");
+            return;
+        }
+
+        memcpy((uint8_t*)page_buf, &packet_data[2], BYTES_PER_WRITE_PAGE);
+        REPLY("ok");
+        break;
+    case OP_CHECK_CRC_PAGE_BUF:
+        if(packet_size != 3)
+        {
+            REPLY("crc page buf wrong size");
+            return;
+        }
+
+        uint16_t expected_crc = packet_data[1] << 8 | packet_data[2];
+
+        uint16_t crc = 0xFFFF;
+        uint8_t * d = (uint8_t*)page_buf;
+        for(size_t i = 0; i < sizeof(page_buf); ++i)
+        {
+            crc =  _crc16_update(crc, d[i]);
+        }
+
+        if(crc == expected_crc)
+        {
+            REPLY("ok");
+        }
+        else
+        {
+            snprintf(tmp_buf, sizeof(tmp_buf), "no match 0x%04x 0x%04x\r\n", crc, expected_crc);
+            send_reply(xbee, parsed_frame, tmp_buf);
+        }
+        break;
+    case OP_WRITE_PAGE:
+        break;
+    case OP_CHECK_CRC_FLASH:
+        break;
+    case OP_JUMP_TO_APP:
+        REPLY("ok"); 
+        while(buf_get_level(&u3.tx_buf) > 0) { _delay_ms(1); }
+        _delay_ms(100);
+        cli();
+        start_app();
+        break;
+    case OP_JUMP_TO_STAGE0:
+        REPLY("ok"); 
+        break;
+    default:
+        REPLY("unknown op");
+
+    }
+}
 
 int main(void)
 {
@@ -116,89 +225,47 @@ int main(void)
 
     sei();
 
-    memset(page_buf, 0, sizeof(page_buf));
-    page_buf[1] = 0xDEAD;
-    page_buf[0] = 0xBEEF;
-    printf("About to write\n");
-    //while(!uart_tx_done(&u0)) {};
-    boot_program_page(0x20000, (void*)page_buf);
-    printf("Write done\n");
-    //while(!uart_tx_done(&u0)) {};
-    printf("0x%08lx\n", pgm_read_dword_far(0x20000));
-    //while(!uart_tx_done(&u0)) {};
-
-    while(true)
-    {
-        memset(pix_buf, 0x00, sizeof(pix_buf));
-        for(size_t i = 0; i < NUM_LED; ++i)
-        {
-            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+0] = 0x10;
-            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+1] = 0x00;
-            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+2] = 0x00;
-            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+3] = 0x00;
-        }
-        neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
-        while(neo_drive_service(&d) != NEO_COMPLETE) {}
-
-        swtimer_t t;
-        swtimer_set(&t, 1000000);
-        while(swtimer_is_expired(&t) == 0) {};
-
-        memset(pix_buf, 0x00, sizeof(pix_buf));
-        for(size_t i = 0; i < NUM_LED; ++i)
-        {
-            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+0] = 0x00;
-            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+1] = 0x00;
-            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+2] = 0x00;
-            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+3] = 0x00;
-        }
-        neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
-        while(neo_drive_service(&d) != NEO_COMPLETE) {}
-
-        swtimer_set(&t, 1000000);
-        while(swtimer_is_expired(&t) == 0) {};
-    }
+    memset(pix_buf, 0x00, sizeof(pix_buf));
+    neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
+    while(neo_drive_service(&d) != NEO_COMPLETE) {}
 
     xbee_uart.ptr = &u3;
     xbee_uart.write = xbee_uart_write;
     xbee_uart.read = xbee_uart_read;
     xbee_uart.sleep = xbee_sleep;
 
-    printf("Reseting Xbee\n");
-
-    PORTH &= ~_BV(3);
-    DDRH |= _BV(3);
-
-    swtimer_t t;
-    swtimer_set(&t, 1000000);
-    while(swtimer_is_expired(&t) == 0) {};
-
-    PORTH &= ~_BV(3);
-    DDRH &= ~_BV(3);
-
-    printf("Initing Xbee\n");
-
-    int ret = xbee_open(&xbee, &xbee_uart, sizeof(xbee_buf), xbee_buf);
-    if(ret < 0)
+    while(1)
     {
-        printf("Failed to init xbee! %d\n", ret);
+        PORTH &= ~_BV(3);
+        DDRH |= _BV(3);
+
+        swtimer_t t;
+        swtimer_set(&t, 1000000);
+        while(swtimer_is_expired(&t) == 0) {};
+
+        PORTH &= ~_BV(3);
+        DDRH &= ~_BV(3);
+
+        swtimer_set(&t, 1000000);
+        while(swtimer_is_expired(&t) == 0) {};
+
+        int ret = xbee_open(&xbee, &xbee_uart, sizeof(xbee_buf), xbee_buf);
+        if(ret < 0)
+        {
+            printf("Failed to init xbee! %d\n", ret);
+            continue;
+        }
+        break;
     }
 
-    uint8_t b[2] = {0xFF, 0xFF};
-    ret = xbee_at_command(&xbee, 2, "MY", 2, b);
-    if(ret < 0)
-    {
-        printf("Failed to send MY AT command, ret = %d\n", ret);
-    }
-
-    printf("Init complete! tx level = %d CTS pin %d\n", buf_get_level(&u3.tx_buf), *u3.pin_cts & _BV(u3.ipin_cts));
+    printf("\nReady!\n");
 
     while(true) {
         uart_service(&u0);
         uart_service(&u3);
 
         memset(frame, 0, sizeof(frame));
-        ret = xbee_recv_frame(&xbee, sizeof(frame), frame);
+        int ret = xbee_recv_frame(&xbee, sizeof(frame), frame);
         if(ret > 0)
         {
             
@@ -212,33 +279,14 @@ int main(void)
             {
             case XBEE_RECEIVE_16_BIT:
             case XBEE_RECEIVE:
-                printf("Reflecting message with length %d (API %d)\n", parsed_frame.frame.receive.packet_size, parsed_frame.api_id);
-                xbee_address_t addr;
-                if(parsed_frame.api_id == XBEE_RECEIVE)
-                {
-                    addr.type = XBEE_64_BIT;
-                    addr.addr.address = parsed_frame.frame.receive.responder_address;
-                }
-                else
-                {
-                    addr.type = XBEE_16_BIT;
-                    addr.addr.network_address = parsed_frame.frame.receive.responder_network_address;
-                }
-
-                ret = xbee_transmit(&xbee, 5, &addr, 0, 
-                        parsed_frame.frame.receive.packet_size, 
-                        parsed_frame.frame.receive.packet_data);
-                if(ret != 0)
-                {
-                    printf("Failed to reflect transmission, ret = %d\n", ret);
-                }
-
+                handle_packet(&xbee, &parsed_frame);
                 break;
             case XBEE_TRANSMIT_STATUS:
                 printf("Tx status %d %d\n", parsed_frame.frame_id, parsed_frame.frame.status);
                 break;
             default:
-                printf("Got API %d\n", parsed_frame.api_id);
+                /* Do nothing */
+                break;
             }
         }
     }
