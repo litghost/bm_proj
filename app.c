@@ -25,7 +25,6 @@ static xbee_interface_t xbee;
 static xbee_uart_interface_t xbee_uart;
 static uint8_t xbee_buf[256];
 static uint8_t frame[128];
-static char tmp_buf[64];
 static xbee_parsed_frame_t parsed_frame;
 
 int uart0_put(char c, FILE *f)
@@ -41,7 +40,8 @@ int uart0_put(char c, FILE *f)
 
 static FILE mystdout = FDEV_SETUP_STREAM(uart0_put, NULL, _FDEV_SETUP_WRITE);
 
-uint8_t pix_buf[BUF_SIZE(NUM_LED, PIX)];
+#define NUM_LED 150
+uint8_t pix_buf[BUF_SIZE(NUM_LED, SK6812RGBW)];
 
 static int xbee_uart_write(void * ptr, const void * buf, size_t n)
 {
@@ -92,12 +92,6 @@ unsigned xbee_sleep(unsigned sec)
     return 0;
 }
 
-#include "wireless_bootloader/write_page.h"
-
-extern int start_app(void) __attribute__((noreturn));
-
-uint8_t page_buf[SPM_PAGESIZE];
-
 static void send_reply(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame, const char * reply)
 {
     xbee_address_t addr;
@@ -122,18 +116,7 @@ static void send_reply(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_fram
 
 #define REPLY(msg) send_reply(xbee, parsed_frame, msg "\r\n");
 
-uint32_t unpack32_be(const uint8_t * b)
-{
-    uint32_t ret = *b++;
-    ret <<= 8;
-    ret |= *b++;
-    ret <<= 8;
-    ret |= *b++;
-    ret <<= 8;
-    ret |= *b++;
-
-    return ret;
-}
+extern int start_boot(void) __attribute__((noreturn));
 
 static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame)
 {
@@ -148,137 +131,17 @@ static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_f
     switch(packet_data[0])
     {
     case OP_NOP:
-        REPLY("stage0");
+        REPLY("app");
         break;
-    case OP_WRITE_PAGE_BUF:
-        if(packet_size != 2+BYTES_PER_WRITE_PAGE)
-        {
-            REPLY("write page wrong size");
-            return;
-        }
-
-        uint8_t offset = packet_data[1];
-        if(offset + BYTES_PER_WRITE_PAGE > sizeof(page_buf))
-        {
-            REPLY("write page OOB");
-            return;
-        }
-
-        memcpy(page_buf+offset, &packet_data[2], BYTES_PER_WRITE_PAGE);
-        REPLY("ok");
-        break;
-    case OP_CHECK_CRC_PAGE_BUF: {
-        if(packet_size != 3)
-        {
-            REPLY("crc page buf wrong size");
-            return;
-        }
-
-        uint16_t expected_crc = packet_data[1] << 8 | packet_data[2];
-
-        uint16_t crc = 0xFFFF;
-        for(size_t i = 0; i < sizeof(page_buf); ++i)
-        {
-            crc =  _crc16_update(crc, page_buf[i]);
-        }
-
-        if(crc == expected_crc)
-        {
-            REPLY("ok");
-        }
-        else
-        {
-            snprintf(tmp_buf, sizeof(tmp_buf), "no match %d 0x%04x 0x%04x\r\n", sizeof(page_buf), crc, expected_crc);
-            send_reply(xbee, parsed_frame, tmp_buf);
-        }
-        break;
-    }
-    case OP_WRITE_PAGE: {
-        if(packet_size != 1+4+2)
-        {
-            REPLY("write page wrong size");
-            return;
-        }
-
-        uint32_t address = unpack32_be(&packet_data[1]);
-        uint16_t expected_crc = packet_data[5] << 8 | packet_data[6];
-
-        if(address < 0x10000)
-        {
-            REPLY("address too low");
-            return;
-        }
-
-        if(address >= 0x3E000)
-        {
-            REPLY("address too high");
-            return;
-        }
-
-        if(address % SPM_PAGESIZE != 0)
-        {
-            REPLY("unaligned page write");
-            return;
-        }
-
-        uint16_t crc = 0xFFFF;
-        for(size_t i = 0; i < sizeof(page_buf); ++i)
-        {
-            crc =  _crc16_update(crc, page_buf[i]);
-        }
-
-        if(crc == expected_crc)
-        {
-            boot_program_page(address, page_buf);
-            REPLY("ok");
-        }
-        else
-        {
-            snprintf(tmp_buf, sizeof(tmp_buf), "no match %d 0x%04x 0x%04x\r\n", 
-                              sizeof(page_buf), crc, expected_crc);
-            send_reply(xbee, parsed_frame, tmp_buf);
-        }
-        break;
-    }
-    case OP_CHECK_CRC_FLASH: {
-        if(packet_size != 1+4+4+2)
-        {
-            REPLY("crc flash wrong size");
-            return;
-        }
-
-        uint32_t address = unpack32_be(&packet_data[1]);
-        uint32_t length = unpack32_be(&packet_data[5]);
-
-        uint16_t expected_crc = packet_data[9] << 8 | packet_data[10];
-
-        uint16_t crc = 0xFFFF;
-        for(uint32_t i = 0; i < length; ++i)
-        {
-            uint8_t b = pgm_read_byte_far(address+i);
-            crc =  _crc16_update(crc, b);
-        }
-
-        if(crc == expected_crc)
-        {
-            REPLY("ok");
-        }
-        else
-        {
-            snprintf(tmp_buf, sizeof(tmp_buf), "no match 0x%04x 0x%04x\r\n", crc, expected_crc);
-            send_reply(xbee, parsed_frame, tmp_buf);
-        }
-        break;
-    }
     case OP_JUMP_TO_APP:
+        REPLY("ok"); 
+        break;
+    case OP_JUMP_TO_STAGE0:
         REPLY("ok"); 
         while(buf_get_level(&u3.tx_buf) > 0) { _delay_ms(1); }
         _delay_ms(100);
         cli();
-        start_app();
-        break;
-    case OP_JUMP_TO_STAGE0:
-        REPLY("ok"); 
+        start_boot();
         break;
     default:
         REPLY("unknown op");
@@ -311,6 +174,10 @@ int main(void)
     sei();
 
     memset(pix_buf, 0x00, sizeof(pix_buf));
+	for(size_t i = 0; i < NUM_LED; ++i)
+	{
+		pix_buf[i*PIXEL_SIZE(PIX)+0] = 0x10;
+	}
     neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
     while(neo_drive_service(&d) != NEO_COMPLETE) {}
 
@@ -343,11 +210,30 @@ int main(void)
         break;
     }
 
+
+	swtimer_t t;
+	swtimer_set(&t, 1000000);
+	bool light = false;
+
     printf("\nReady!\n");
 
     while(true) {
         uart_service(&u0);
         uart_service(&u3);
+
+		if(swtimer_is_expired(&t))
+		{
+			swtimer_set(&t, 1000000);
+			memset(pix_buf, 0x00, sizeof(pix_buf));
+			for(size_t i = 0; i < NUM_LED; ++i)
+			{
+				pix_buf[i*PIXEL_SIZE(PIX)+0] = light ? 0x10 : 0x00;
+				light = !light;
+			}
+
+			neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
+			while(neo_drive_service(&d) != NEO_COMPLETE) {}
+		}
 
         memset(frame, 0, sizeof(frame));
         int ret = xbee_recv_frame(&xbee, sizeof(frame), frame);
@@ -375,3 +261,4 @@ int main(void)
         }
     }
 }
+

@@ -98,107 +98,124 @@ class MyXbee(object):
     def __exit__(self, type, value, traceback):
         self.xbee.halt()
 
-def write_application(port, remote_addr, data, retries):
-    with MyXbee(port) as xbee:
-        def send_msg(op, data='', timeout=None):
-            xbee.xbee.tx_long_addr(frame_id='\x01', dest_addr=remote_addr, data=chr(op)+data)
-            tx_status = xbee.get(timeout=timeout)
-            assert tx_status['status'] == '\x00'
-            reply = xbee.get(timeout=timeout)
-            return reply['rf_data']
+def write_application(xbee, remote_addr, data, retries):
+    def send_msg(op, data='', timeout=None):
+        xbee.xbee.tx_long_addr(frame_id='\x01', dest_addr=remote_addr, data=chr(op)+data)
+        tx_status = xbee.get(timeout=timeout)
+        assert tx_status['status'] == '\x00'
+        reply = xbee.get(timeout=timeout)
+        return reply['rf_data']
 
-        def write_page(address, page):
-            offset = 0
-            while offset < PAGESIZE:
-                assert send_msg(OP_WRITE_PAGE_BUF, struct.pack('!B64s', 
-                    offset, page[offset:offset+BYTES_PER_WRITE_PAGE])).strip() == 'ok'
-
-                offset += BYTES_PER_WRITE_PAGE
-
-            expected_crc = crc16(page)
-            assert send_msg(OP_CHECK_CRC_PAGE_BUF, struct.pack('!H', expected_crc)).strip() == 'ok'
-
-            assert send_msg(OP_WRITE_PAGE, struct.pack('!IH', address, expected_crc)).strip() == 'ok'
-
-        def crc_flash(address, length, expected_crc):
-            msg = struct.pack('!IIH', address, length, expected_crc)
-            reply = send_msg(OP_CHECK_CRC_FLASH, msg, timeout=20).strip()
-            print reply
-            assert reply == 'ok'
-
-        while True:
-            try:
-                if send_msg(OP_NOP).strip() == 'stage0':
-                    break
-            except AssertionError:
-                print 'All quiet on the western front, waiting'
-                time.sleep(10)
-                continue
-            except Queue.Empty:
-                print 'All quiet on the western front, waiting'
-                time.sleep(10)
-                continue
-
-            print 'Not in stage0, jumping'
-            print send_msg(OP_JUMP_TO_STAGE0)
-            time.sleep(1)
-
-        # Pad to PAGESIZE with FF
-        if len(data) % PAGESIZE != 0:
-            data = data + 'xff'*(PAGESIZE - (len(data) % PAGESIZE))
-
+    def write_page(address, page):
         offset = 0
+        while offset < PAGESIZE:
+            assert send_msg(OP_WRITE_PAGE_BUF, struct.pack('!B64s', 
+                offset, page[offset:offset+BYTES_PER_WRITE_PAGE])).strip() == 'ok'
 
-        while offset < len(data):
-            page = data[offset:offset+PAGESIZE]
+            offset += BYTES_PER_WRITE_PAGE
 
-            retry = 0
-            while True:
-                try:
-                    write_page(0x10000+offset, page)
-                    break
-                except:
-                    retry += 1
-                    if retry >= retries:
-                        raise
+        expected_crc = crc16(page)
+        assert send_msg(OP_CHECK_CRC_PAGE_BUF, struct.pack('!H', expected_crc)).strip() == 'ok'
 
-                    print 'Failed to write page at offset 0x%08x, retry %d' % (offset, retry)
+        assert send_msg(OP_WRITE_PAGE, struct.pack('!IH', address, expected_crc)).strip() == 'ok'
 
-        crc_flash(0x10000, len(data), crc16(data))
+    def crc_flash(address, length, expected_crc):
+        msg = struct.pack('!IIH', address, length, expected_crc)
+        reply = send_msg(OP_CHECK_CRC_FLASH, msg, timeout=20).strip()
+        print reply
+        assert reply == 'ok'
 
-        assert send_msg(OP_JUMP_TO_APP).strip() == 'ok'
+    while True:
+        try:
+            if send_msg(OP_NOP).strip() == 'stage0':
+                break
+        except AssertionError:
+            print 'All quiet on the western front, waiting'
+            time.sleep(10)
+            continue
+        except Queue.Empty:
+            print 'All quiet on the western front, waiting'
+            time.sleep(10)
+            continue
 
+        print 'Not in stage0, jumping'
+        print send_msg(OP_JUMP_TO_STAGE0)
+        time.sleep(1)
+
+    # Pad to PAGESIZE with FF
+    if len(data) % PAGESIZE != 0:
+        data = data + '\xff'*(PAGESIZE - (len(data) % PAGESIZE))
+
+    offset = 0
+
+    while offset < len(data):
+        print 'Writing page at offset 0x%08x, %.2f %%' % (offset, 100*float(offset)/len(data))
+        page = data[offset:offset+PAGESIZE]
+
+        retry = 0
         while True:
             try:
-                reply = send_msg(OP_NOP).strip()
-                if reply == 'stage0':
-                    raise RuntimeError('Still in bootloader????')
-                else:
-                    print 'Entered app %s' % reply
+                write_page(0x10000+offset, page)
+                break
             except:
-                print 'All quiet on the western front, waiting'
-                time.sleep(10)
-                continue
+                retry += 1
+                if retry >= retries:
+                    raise
+
+                print 'Failed to write page at offset 0x%08x, retry %d' % (offset, retry)
+
+        offset += PAGESIZE
+
+    crc_flash(0x10000, len(data), crc16(data))
+
+def start_application(xbee, remote_addr):
+    def send_msg(op, data='', timeout=None):
+        xbee.xbee.tx_long_addr(frame_id='\x01', dest_addr=remote_addr, data=chr(op)+data)
+        tx_status = xbee.get(timeout=timeout)
+        assert tx_status['status'] == '\x00'
+        reply = xbee.get(timeout=timeout)
+        return reply['rf_data']
+
+    assert send_msg(OP_JUMP_TO_APP).strip() == 'ok'
+
+    while True:
+        try:
+            reply = send_msg(OP_NOP).strip()
+            if reply == 'stage0':
+                raise RuntimeError('Still in bootloader????')
+            else:
+                print 'Entered app %s' % reply
+        except:
+            print 'All quiet on the western front, waiting'
+            time.sleep(10)
+            continue
 
 def main():
     parser = argparse.ArgumentParser(description='Load application on ATMEGA via XBee')
     parser.add_argument('--port', default='/dev/ttyUSB0')
     parser.add_argument('--remote_addr', default='0013A20040FC8CCB')
-    parser.add_argument('--retries', type=int, default=3)
-    parser.add_argument('filename')
+    parser.add_argument('--retries', type=int, default=10)
+    parser.add_argument('--write-app')
     #def write_application(port, remote_addr, data, retries):
 
     args = parser.parse_args()
 
-    with open(args.filename, 'rb') as f:
-        data = f.read()
+    with MyXbee(args.port) as xbee:
+        if args.write_app:
+            with open(args.write_app, 'rb') as f:
+                data = f.read()
 
-    write_application(
-            port=args.port, 
-            remote_addr=args.remote_addr,
-            data=data,
-            retries=args.retries,
-            )
+            write_application(
+                    xbee=xbee,
+                    remote_addr=binascii.unhexlify(args.remote_addr),
+                    data=data,
+                    retries=args.retries,
+                    )
+
+        start_application(
+                xbee=xbee,
+                remote_addr=binascii.unhexlify(args.remote_addr),
+                )
 
 if __name__ == '__main__':
     main()
