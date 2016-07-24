@@ -96,7 +96,7 @@ unsigned xbee_sleep(unsigned sec)
 
 extern int start_app(void) __attribute__((noreturn));
 
-uint16_t page_buf[SPM_PAGESIZE];
+uint8_t page_buf[SPM_PAGESIZE];
 
 static void send_reply(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame, const char * reply)
 {
@@ -122,12 +122,24 @@ static void send_reply(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_fram
 
 #define REPLY(msg) send_reply(xbee, parsed_frame, msg "\r\n");
 
+uint32_t unpack32_be(const uint8_t * b)
+{
+    uint32_t ret = *b++;
+    ret <<= 8;
+    ret |= *b++;
+    ret <<= 8;
+    ret |= *b++;
+    ret <<= 8;
+    ret |= *b++;
+
+    return ret;
+}
+
 static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame)
 {
     size_t packet_size = parsed_frame->frame.receive.packet_size;
     const uint8_t * packet_data = parsed_frame->frame.receive.packet_data;
 
-    printf("Got frame of size %d\n", packet_size);
     if(packet_size == 0)
     {
         REPLY("hi");
@@ -152,10 +164,10 @@ static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_f
             return;
         }
 
-        memcpy((uint8_t*)page_buf, &packet_data[2], BYTES_PER_WRITE_PAGE);
+        memcpy(page_buf+offset, &packet_data[2], BYTES_PER_WRITE_PAGE);
         REPLY("ok");
         break;
-    case OP_CHECK_CRC_PAGE_BUF:
+    case OP_CHECK_CRC_PAGE_BUF: {
         if(packet_size != 3)
         {
             REPLY("crc page buf wrong size");
@@ -165,10 +177,86 @@ static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_f
         uint16_t expected_crc = packet_data[1] << 8 | packet_data[2];
 
         uint16_t crc = 0xFFFF;
-        uint8_t * d = (uint8_t*)page_buf;
         for(size_t i = 0; i < sizeof(page_buf); ++i)
         {
-            crc =  _crc16_update(crc, d[i]);
+            crc =  _crc16_update(crc, page_buf[i]);
+        }
+
+        if(crc == expected_crc)
+        {
+            REPLY("ok");
+        }
+        else
+        {
+            snprintf(tmp_buf, sizeof(tmp_buf), "no match %d 0x%04x 0x%04x\r\n", sizeof(page_buf), crc, expected_crc);
+            send_reply(xbee, parsed_frame, tmp_buf);
+        }
+        break;
+    }
+    case OP_WRITE_PAGE: {
+        if(packet_size != 1+4+2)
+        {
+            REPLY("write page wrong size");
+            return;
+        }
+
+        uint32_t address = unpack32_be(&packet_data[1]);
+        uint16_t expected_crc = packet_data[5] << 8 | packet_data[6];
+
+        if(address < 0x10000)
+        {
+            REPLY("address too low");
+            return;
+        }
+
+        if(address >= 0x3E000)
+        {
+            REPLY("address too high");
+            return;
+        }
+
+        if(address % SPM_PAGESIZE != 0)
+        {
+            REPLY("unaligned page write");
+            return;
+        }
+
+        uint16_t crc = 0xFFFF;
+        for(size_t i = 0; i < sizeof(page_buf); ++i)
+        {
+            crc =  _crc16_update(crc, page_buf[i]);
+        }
+
+        if(crc == expected_crc)
+        {
+            boot_program_page(address, page_buf);
+            REPLY("ok");
+        }
+        else
+        {
+            snprintf(tmp_buf, sizeof(tmp_buf), "no match %d 0x%04x 0x%04x\r\n", 
+                              sizeof(page_buf), crc, expected_crc);
+            send_reply(xbee, parsed_frame, tmp_buf);
+        }
+        break;
+    }
+    case OP_CHECK_CRC_FLASH: {
+        if(packet_size != 1+4+4+2)
+        {
+            REPLY("crc flash wrong size");
+            return;
+        }
+
+        uint32_t address = unpack32_be(&packet_data[1]);
+        uint32_t length = unpack32_be(&packet_data[5]);
+
+        uint16_t expected_crc = packet_data[9] << 8 | packet_data[10];
+
+        uint16_t crc = 0xFFFF;
+        for(uint32_t i = 0; i < length; ++i)
+        {
+            uint8_t b = pgm_read_byte_far(address+i);
+            crc =  _crc16_update(crc, b);
         }
 
         if(crc == expected_crc)
@@ -181,10 +269,7 @@ static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_f
             send_reply(xbee, parsed_frame, tmp_buf);
         }
         break;
-    case OP_WRITE_PAGE:
-        break;
-    case OP_CHECK_CRC_FLASH:
-        break;
+    }
     case OP_JUMP_TO_APP:
         REPLY("ok"); 
         while(buf_get_level(&u3.tx_buf) > 0) { _delay_ms(1); }
@@ -282,7 +367,6 @@ int main(void)
                 handle_packet(&xbee, &parsed_frame);
                 break;
             case XBEE_TRANSMIT_STATUS:
-                printf("Tx status %d %d\n", parsed_frame.frame_id, parsed_frame.frame.status);
                 break;
             default:
                 /* Do nothing */

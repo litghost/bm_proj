@@ -1,10 +1,26 @@
 import serial
+import argparse
 from xbee import XBee
 import binascii
 import time
 import Queue
 from set_baudrate import set_baudrate
+import struct
+import crcmod
 
+OP_NOP = 0
+OP_WRITE_PAGE_BUF = 1
+OP_CHECK_CRC_PAGE_BUF = 2
+OP_WRITE_PAGE = 3
+OP_CHECK_CRC_FLASH = 4
+OP_JUMP_TO_APP = 5
+OP_JUMP_TO_STAGE0 = 6
+OP_APP_OP = 7
+
+BYTES_PER_WRITE_PAGE = 64
+PAGESIZE = 256
+
+crc16 = crcmod.mkCrcFun(0x18005, 0xFFFF, True, 0)
 
 class MyXbee(object):
     def __init__(self, port, timeout=1):
@@ -12,6 +28,15 @@ class MyXbee(object):
         self.timeout = 1
         self.ser = serial.Serial(port, 9600, rtscts=True, timeout=1, writeTimeout=1)
         set_baudrate(self.ser, 250000)
+        while True:
+            try:
+                s = self.ser.read(1024)
+                if len(s) == 0:
+                    break
+
+                continue
+            except:
+                break
 
         try:
             self.try_at()
@@ -73,60 +98,107 @@ class MyXbee(object):
     def __exit__(self, type, value, traceback):
         self.xbee.halt()
 
-OP_NOP = 0
-OP_WRITE_PAGE_BUF = 1
-OP_CHECK_CRC_PAGE_BUF = 2
-OP_WRITE_PAGE = 3
-OP_CHECK_CRC_FLASH = 4
-OP_JUMP_TO_APP = 5
-OP_JUMP_TO_STAGE0 = 6
-OP_APP_OP = 7
-
-BYTES_PER_WRITE_PAGE = 64
-PAGESIZE = 256
-
-ADDRESS = binascii.unhexlify('0013A20040FC8CCB')
-
-import random
-import struct
-import crcmod
-
-ccitt = crcmod.predefined.mkCrcFun('crc-ccitt-false')
-
-def main():
-    with MyXbee('/dev/ttyUSB0') as xbee:
+def write_application(port, remote_addr, data, retries):
+    with MyXbee(port) as xbee:
         def send_msg(op, data='', timeout=None):
-            xbee.xbee.tx_long_addr(frame_id='\x01', dest_addr=ADDRESS, data=chr(op)+data)
+            xbee.xbee.tx_long_addr(frame_id='\x01', dest_addr=remote_addr, data=chr(op)+data)
             tx_status = xbee.get(timeout=timeout)
             assert tx_status['status'] == '\x00'
             reply = xbee.get(timeout=timeout)
             return reply['rf_data']
 
+        def write_page(address, page):
+            offset = 0
+            while offset < PAGESIZE:
+                assert send_msg(OP_WRITE_PAGE_BUF, struct.pack('!B64s', 
+                    offset, page[offset:offset+BYTES_PER_WRITE_PAGE])).strip() == 'ok'
+
+                offset += BYTES_PER_WRITE_PAGE
+
+            expected_crc = crc16(page)
+            assert send_msg(OP_CHECK_CRC_PAGE_BUF, struct.pack('!H', expected_crc)).strip() == 'ok'
+
+            assert send_msg(OP_WRITE_PAGE, struct.pack('!IH', address, expected_crc)).strip() == 'ok'
+
+        def crc_flash(address, length, expected_crc):
+            msg = struct.pack('!IIH', address, length, expected_crc)
+            reply = send_msg(OP_CHECK_CRC_FLASH, msg, timeout=20).strip()
+            print reply
+            assert reply == 'ok'
+
         while True:
             try:
                 if send_msg(OP_NOP).strip() == 'stage0':
                     break
+            except AssertionError:
+                print 'All quiet on the western front, waiting'
+                time.sleep(10)
+                continue
             except Queue.Empty:
                 print 'All quiet on the western front, waiting'
-                time.sleep(1)
+                time.sleep(10)
+                continue
 
             print 'Not in stage0, jumping'
             print send_msg(OP_JUMP_TO_STAGE0)
             time.sleep(1)
 
-        page = '\x00'*PAGESIZE #str(bytearray(random.getrandbits(8) for _ in xrange(PAGESIZE)))
+        # Pad to PAGESIZE with FF
+        if len(data) % PAGESIZE != 0:
+            data = data + 'xff'*(PAGESIZE - (len(data) % PAGESIZE))
 
         offset = 0
-        while offset < PAGESIZE:
-            print 'Sending page buf at offset %d' % offset
-            print send_msg(OP_WRITE_PAGE_BUF, struct.pack('!B64s', 
-                offset, page[offset:offset+BYTES_PER_WRITE_PAGE])).strip()
 
-            offset += BYTES_PER_WRITE_PAGE
+        while offset < len(data):
+            page = data[offset:offset+PAGESIZE]
 
-        expected_crc = ccitt(page)
-        print send_msg(OP_CHECK_CRC_PAGE_BUF, struct.pack('!H', expected_crc)).strip()
+            retry = 0
+            while True:
+                try:
+                    write_page(0x10000+offset, page)
+                    break
+                except:
+                    retry += 1
+                    if retry >= retries:
+                        raise
 
+                    print 'Failed to write page at offset 0x%08x, retry %d' % (offset, retry)
 
+        crc_flash(0x10000, len(data), crc16(data))
 
-main()
+        assert send_msg(OP_JUMP_TO_APP).strip() == 'ok'
+
+        while True:
+            try:
+                reply = send_msg(OP_NOP).strip()
+                if reply == 'stage0':
+                    raise RuntimeError('Still in bootloader????')
+                else:
+                    print 'Entered app %s' % reply
+            except:
+                print 'All quiet on the western front, waiting'
+                time.sleep(10)
+                continue
+
+def main():
+    parser = argparse.ArgumentParser(description='Load application on ATMEGA via XBee')
+    parser.add_argument('--port', default='/dev/ttyUSB0')
+    parser.add_argument('--remote_addr', default='0013A20040FC8CCB')
+    parser.add_argument('--retries', type=int, default=3)
+    parser.add_argument('filename')
+    #def write_application(port, remote_addr, data, retries):
+
+    args = parser.parse_args()
+
+    with open(args.filename, 'rb') as f:
+        data = f.read()
+
+    write_application(
+            port=args.port, 
+            remote_addr=args.remote_addr,
+            data=data,
+            retries=args.retries,
+            )
+
+if __name__ == '__main__':
+    main()
