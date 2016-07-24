@@ -5,6 +5,7 @@ HEADERS = \
 	circ_buf.h \
 	neopixel_drive.h \
 	swtimer.h \
+	vector_manager.h \
 	$(XBEE_LIB)/xbee.h \
 
 SRCS = \
@@ -12,6 +13,7 @@ SRCS = \
 	circ_buf.c \
 	neopixel_drive.c \
 	swtimer.c \
+	vector_manager.c \
 	$(XBEE_LIB)/xbee.c \
 
 all: bm_proj.elf bm_proj_app.elf
@@ -19,12 +21,12 @@ all: bm_proj.elf bm_proj_app.elf
 APP_START = 0x10000
 BOOT_PROGRAM_LOC = 0x3e488
 
-bm_proj.elf: $(HEADERS) $(SRCS) main.c
-	avr-gcc -I$(XBEE_LIB) -g -Os -std=gnu99 -mmcu=atmega2560 main.c $(SRCS) -DF_CPU=16000000UL -Wall -Werror -o bm_proj.elf -Wl,--defsym,boot_program_page=$(BOOT_PROGRAM_LOC) -Wl,--defsym,start_app=$(APP_START)
+bm_proj.elf: $(HEADERS) $(SRCS) main.c vector_manager_extern.c
+	avr-gcc -I$(XBEE_LIB) -g -Os -std=gnu99 -mmcu=atmega2560 main.c vector_manager_extern.c $(SRCS) -DF_CPU=16000000UL -Wall -Werror -o bm_proj.elf -Wl,--defsym,boot_program_page=$(BOOT_PROGRAM_LOC) -Wl,--defsym,start_app=$(APP_START) -Wl,-Map,bm_proj.map
 	avr-size bm_proj.elf
 
-bm_proj_app.elf: $(HEADERS) $(SRCS) app.c
-	avr-gcc -I$(XBEE_LIB) -g -Os -std=gnu99 -mmcu=atmega2560 $(SRCS) app.c -DF_CPU=16000000UL -Wall -Werror -o bm_proj_app.elf -Wl,--defsym,start_boot=0x00000 -Wl,--section-start=.text=$(APP_START)
+bm_proj_app.elf: $(HEADERS) $(SRCS) app.c bm_proj.elf
+	avr-gcc -I$(XBEE_LIB) -g -Os -std=gnu99 -mmcu=atmega2560 $(SRCS) app.c -DF_CPU=16000000UL -Wall -Werror -o bm_proj_app.elf -Wl,--defsym,start_boot=0x00000 -Wl,--section-start=.text=$(APP_START) -Wl,-Map,bm_proj_app.map -Wl,--defsym,vect_list=0x$(shell avr-objdump bm_proj.elf -t | grep vect_list | cut -d ' ' -f1)
 	avr-size bm_proj_app.elf
 
 bm_proj_app.bin: bm_proj_app.elf

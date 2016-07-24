@@ -215,8 +215,6 @@ int main(void)
 	swtimer_set(&t, 1000000);
 	bool light = false;
 
-    printf("\nReady!\n");
-
     while(true) {
         uart_service(&u0);
         uart_service(&u3);
@@ -228,8 +226,8 @@ int main(void)
 			for(size_t i = 0; i < NUM_LED; ++i)
 			{
 				pix_buf[i*PIXEL_SIZE(PIX)+0] = light ? 0x10 : 0x00;
-				light = !light;
 			}
+			light = !light;
 
 			neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
 			while(neo_drive_service(&d) != NEO_COMPLETE) {}

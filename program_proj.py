@@ -163,6 +163,7 @@ def write_application(xbee, remote_addr, data, retries):
                     raise
 
                 print 'Failed to write page at offset 0x%08x, retry %d' % (offset, retry)
+                time.sleep(.5)
 
         offset += PAGESIZE
 
@@ -184,7 +185,8 @@ def start_application(xbee, remote_addr):
             if reply == 'stage0':
                 raise RuntimeError('Still in bootloader????')
             else:
-                print 'Entered app %s' % reply
+                print 'Entered app %s' % reply.strip()
+                break
         except:
             print 'All quiet on the western front, waiting'
             time.sleep(10)

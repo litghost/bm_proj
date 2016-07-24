@@ -5,8 +5,38 @@
 #include <stdbool.h>
 #include <string.h>
 #include <assert.h>
+#include "vector_manager.h"
+
+static void uart_tx_interrupt(int n);
+static void uart_rx_interrupt(int n);
 
 static uart_t * volatile uarts[4];
+static void rx0(void)     { uart_rx_interrupt(0); }
+static void rx1(void)     { uart_rx_interrupt(1); }
+static void rx2(void)     { uart_rx_interrupt(2); }
+static void rx3(void)     { uart_rx_interrupt(3); }
+
+static void tx0(void)   { uart_tx_interrupt(0); }
+static void tx1(void)   { uart_tx_interrupt(1); }
+static void tx2(void)   { uart_tx_interrupt(2); }
+static void tx3(void)   { uart_tx_interrupt(3); }
+
+static const vector_fun_t rx_fun[] = {rx0, rx1, rx2, rx3};
+static const vector_fun_t tx_fun[] = {tx0, tx1, tx2, tx3};
+static const vector_t rx_vect[] = {
+	VECT_USART0_RX_vect,
+	VECT_USART1_RX_vect,
+	VECT_USART2_RX_vect,
+	VECT_USART3_RX_vect,
+};
+
+static const vector_t tx_vect[] = {
+	VECT_USART0_UDRE_vect,
+	VECT_USART1_UDRE_vect,
+	VECT_USART2_UDRE_vect,
+	VECT_USART3_UDRE_vect,
+};
+
 
 void _uart_init(uart_t * uart, 
         int uart_num,
@@ -41,6 +71,9 @@ void _uart_init(uart_t * uart,
 
     uart->num = uart_num;
     uarts[uart_num] = NULL;
+
+	vector_set_vector(rx_vect[uart->num], rx_fun[uart->num]);
+	vector_set_vector(tx_vect[uart->num], tx_fun[uart->num]);
 }
 
 void uart_set_rts(uart_t * uart, bool rts)
@@ -207,16 +240,6 @@ void uart_tx_interrupt(int n)
         *uart->ucsra &= ~_BV(TXC0);
     }
 }
-
-ISR(USART0_RX_vect)     { uart_rx_interrupt(0); }
-ISR(USART1_RX_vect)     { uart_rx_interrupt(1); }
-ISR(USART2_RX_vect)     { uart_rx_interrupt(2); }
-ISR(USART3_RX_vect)     { uart_rx_interrupt(3); }
-
-ISR(USART0_UDRE_vect)   { uart_tx_interrupt(0); }
-ISR(USART1_UDRE_vect)   { uart_tx_interrupt(1); }
-ISR(USART2_UDRE_vect)   { uart_tx_interrupt(2); }
-ISR(USART3_UDRE_vect)   { uart_tx_interrupt(3); }
 
 void uart_enable(uart_t * uart)
 {

@@ -2,10 +2,11 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/atomic.h>
+#include "vector_manager.h"
 
 static volatile uint32_t now;
 
-#define _TIMER_ISR_VEC(t) TIMER ## t ## _COMPA_vect
+#define _TIMER_ISR_VEC(t) VECT_TIMER ## t ## _COMPA_vect
 #define TIMER_ISR_VEC(t) _TIMER_ISR_VEC(t)
 
 #define _TCCRA(t) TCCR ## t ## A
@@ -29,13 +30,14 @@ static volatile uint32_t now;
 #define _TCNT(t) TCNT ## t
 #define TCNT(t) _TCNT(t)
 
-ISR(TIMER_ISR_VEC(SWTIMER_TIMER))
+static void swtimer_isr(void)
 {
 	now += 1;
 }
 
 void swtimer_setup(void)
 {
+	vector_set_vector(TIMER_ISR_VEC(SWTIMER_TIMER), swtimer_isr);
 	TCCRA(SWTIMER_TIMER) = 0;
 	TCCRB(SWTIMER_TIMER) = /*_BV(WGM12)|  */_BV(CS01);
 	TCCRC(SWTIMER_TIMER) = 0;
