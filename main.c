@@ -286,6 +286,58 @@ static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_f
     }
 }
 
+static int set_baudrate(uint32_t baudrate)
+{
+    char set_baud[4];
+    set_baud[0] = baudrate >> 24;
+    set_baud[1] = baudrate >> 16;
+    set_baud[2] = baudrate >>  8;
+    set_baud[3] = baudrate >>  0;
+
+    int ret = xbee_at_command(&xbee, 1, "BD", sizeof(set_baud), set_baud);
+    if(ret < 0)
+    {
+        printf("error writing frame, ret = %d\n", ret);
+        return -1;
+    }
+
+    ret = xbee_at_command(&xbee, 1, "AC", 0, set_baud);
+    if(ret < 0)
+    {
+        printf("error writing frame, ret = %d\n", ret);
+        return -3;
+    }
+
+    while(buf_get_level(&u3.tx_buf) > 0) {};
+
+    swtimer_t t;
+    swtimer_set(&t, 100000);
+    while(swtimer_is_expired(&t) == 0) {};
+
+    uart_set_baudrate(&u3, baudrate);
+    uart_enable(&u3);
+
+    ret = xbee_at_command(&xbee, 1, "BD", 0, set_baud);
+    if(ret < 0)
+    {
+        printf("error writing frame, ret = %d\n", ret);
+        return -4;
+    }
+
+    swtimer_set(&t, 100000);
+    while(swtimer_is_expired(&t) == 0) {};
+
+    ret = xbee_recv_frame(&xbee, sizeof(frame), frame);
+    if(ret <= 0)
+    {
+        printf("error getting frame, ret = %d\n", ret);
+        return -5;
+    }
+
+    return 0;
+
+}
+
 int main(void)
 {
     stdout = &mystdout;
@@ -319,8 +371,14 @@ int main(void)
     xbee_uart.read = xbee_uart_read;
     xbee_uart.sleep = xbee_sleep;
 
+    printf("Or here\n");
+
     while(1)
     {
+        uart_set_baudrate(&u3, 9600);
+        uart_enable(&u3);
+
+        printf("Initing Xbee\n");
         PORTH &= ~_BV(3);
         DDRH |= _BV(3);
 
@@ -340,6 +398,15 @@ int main(void)
             printf("Failed to init xbee! %d\n", ret);
             continue;
         }
+
+        ret = set_baudrate(57600);
+        if(ret != 0)
+        {
+            printf("failed to set baud rate %d\n", ret);
+            continue;
+        }
+        printf("Here\n");
+
         break;
     }
 
