@@ -12,6 +12,7 @@ typedef uint32_t pixel_format_t;
 #define NO_PIX 0xFF
 
 #define WS2812_RBG PIX_FORMAT(8, 0, 16, 0xFF)
+#define SK6812RGBW PIX_FORMAT(8, 0, 16, 24)
 
 #define R_OFFSET(t) ((t >>  0) & 0xFF)
 #define G_OFFSET(t) ((t >>  8) & 0xFF)

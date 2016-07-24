@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -35,7 +36,8 @@ int uart0_put(char c, FILE *f)
 
 static FILE mystdout = FDEV_SETUP_STREAM(uart0_put, NULL, _FDEV_SETUP_WRITE);
 
-uint8_t pix_buf[BUF_SIZE(8, WS2812_RBG)];
+#define NUM_LED 150
+uint8_t pix_buf[BUF_SIZE(NUM_LED, SK6812RGBW)];
 
 static int xbee_uart_write(void * ptr, const void * buf, size_t n)
 {
@@ -86,6 +88,10 @@ unsigned xbee_sleep(unsigned sec)
     return 0;
 }
 
+#include "wireless_bootloader/write_page.h"
+
+uint16_t page_buf[SPM_PAGESIZE];
+
 int main(void)
 {
     stdout = &mystdout;
@@ -110,9 +116,48 @@ int main(void)
 
     sei();
 
-    memset(pix_buf, 0x00, sizeof(pix_buf));
-    neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
-    while(neo_drive_service(&d) != NEO_COMPLETE) {}
+    memset(page_buf, 0, sizeof(page_buf));
+    page_buf[1] = 0xDEAD;
+    page_buf[0] = 0xBEEF;
+    printf("About to write\n");
+    //while(!uart_tx_done(&u0)) {};
+    boot_program_page(0x20000, (void*)page_buf);
+    printf("Write done\n");
+    //while(!uart_tx_done(&u0)) {};
+    printf("0x%08lx\n", pgm_read_dword_far(0x20000));
+    //while(!uart_tx_done(&u0)) {};
+
+    while(true)
+    {
+        memset(pix_buf, 0x00, sizeof(pix_buf));
+        for(size_t i = 0; i < NUM_LED; ++i)
+        {
+            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+0] = 0x10;
+            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+1] = 0x00;
+            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+2] = 0x00;
+            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+3] = 0x00;
+        }
+        neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
+        while(neo_drive_service(&d) != NEO_COMPLETE) {}
+
+        swtimer_t t;
+        swtimer_set(&t, 1000000);
+        while(swtimer_is_expired(&t) == 0) {};
+
+        memset(pix_buf, 0x00, sizeof(pix_buf));
+        for(size_t i = 0; i < NUM_LED; ++i)
+        {
+            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+0] = 0x00;
+            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+1] = 0x00;
+            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+2] = 0x00;
+            pix_buf[i*PIXEL_SIZE(SK6812RGBW)+3] = 0x00;
+        }
+        neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
+        while(neo_drive_service(&d) != NEO_COMPLETE) {}
+
+        swtimer_set(&t, 1000000);
+        while(swtimer_is_expired(&t) == 0) {};
+    }
 
     xbee_uart.ptr = &u3;
     xbee_uart.write = xbee_uart_write;
