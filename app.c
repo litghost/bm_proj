@@ -8,10 +8,9 @@
 
 #include "uart.h"
 #include "swtimer.h"
-#include "neopixel_drive.h"
 #include "xbee.h"
 #include "wireless_protocol.h"
-#include "params.h"
+#include "display_controller.h"
 
 static uart_t u0;
 static uint8_t tx0_buf[32];
@@ -20,6 +19,8 @@ static uint8_t rx0_buf[32];
 static uart_t u3;
 static uint8_t tx3_buf[256];
 static uint8_t rx3_buf[128];
+
+static display_t d;
 
 static xbee_interface_t xbee;
 static xbee_uart_interface_t xbee_uart;
@@ -39,9 +40,6 @@ int uart0_put(char c, FILE *f)
 }
 
 static FILE mystdout = FDEV_SETUP_STREAM(uart0_put, NULL, _FDEV_SETUP_WRITE);
-
-#define NUM_LED 150
-uint8_t pix_buf[BUF_SIZE(NUM_LED, SK6812RGBW)];
 
 static int xbee_uart_write(void * ptr, const void * buf, size_t n)
 {
@@ -168,23 +166,14 @@ int main(void)
     uart_set_hardware_flow(&u3, E, 3, G, 5);
     uart_enable(&u3);
 
-    neo_drive_t d;
-    neo_drive_init(&d, 80, &PORTD, &DDRD, _BV(3));
-
     sei();
-
-    memset(pix_buf, 0x00, sizeof(pix_buf));
-	for(size_t i = 0; i < NUM_LED; ++i)
-	{
-		pix_buf[i*PIXEL_SIZE(PIX)+0] = 0x10;
-	}
-    neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
-    while(neo_drive_service(&d) != NEO_COMPLETE) {}
 
     xbee_uart.ptr = &u3;
     xbee_uart.write = xbee_uart_write;
     xbee_uart.read = xbee_uart_read;
     xbee_uart.sleep = xbee_sleep;
+
+    disp_init(&d);
 
     while(1)
     {
@@ -210,28 +199,11 @@ int main(void)
         break;
     }
 
-
-	swtimer_t t;
-	swtimer_set(&t, 1000000);
-	bool light = false;
-
     while(true) {
         uart_service(&u0);
         uart_service(&u3);
 
-		if(swtimer_is_expired(&t))
-		{
-			swtimer_set(&t, 1000000);
-			memset(pix_buf, 0x00, sizeof(pix_buf));
-			for(size_t i = 0; i < NUM_LED; ++i)
-			{
-				pix_buf[i*PIXEL_SIZE(PIX)+0] = light ? 0x10 : 0x00;
-			}
-			light = !light;
-
-			neo_drive_start_show(&d, sizeof(pix_buf), pix_buf);
-			while(neo_drive_service(&d) != NEO_COMPLETE) {}
-		}
+        disp_service(&d);
 
         memset(frame, 0, sizeof(frame));
         int ret = xbee_recv_frame(&xbee, sizeof(frame), frame);

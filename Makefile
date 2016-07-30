@@ -6,6 +6,7 @@ HEADERS = \
 	neopixel_drive.h \
 	swtimer.h \
 	vector_manager.h \
+	display_controller.h \
 	$(XBEE_LIB)/xbee.h \
 
 SRCS = \
@@ -14,6 +15,7 @@ SRCS = \
 	neopixel_drive.c \
 	swtimer.c \
 	vector_manager.c \
+	display_controller.c \
 	$(XBEE_LIB)/xbee.c \
 
 all: bm_proj.elf bm_proj_app.elf
