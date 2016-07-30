@@ -37,6 +37,7 @@ static void neo_drive_write_show(neo_drive_t * d)
 
     asm volatile(
      "head20:"                   "\n\t" // Clk  Pseudocode    (T =  0)
+      "cli"    					 "\n\t" //
       "st   %a[port],  %[hi]"    "\n\t" // 2    PORT = hi     (T =  2)
       "sbrc %[byte],  7"         "\n\t" // 1-2  if(b & 128)
        "mov  %[next], %[hi]"     "\n\t" // 0-1   next = hi    (T =  4)
@@ -55,7 +56,7 @@ static void neo_drive_write_show(neo_drive_t * d)
       "ldi  %[bit]  ,  8"        "\n\t" // 1    bit = 8       (T = 11)
       "ld   %[byte] ,  %a[ptr]+" "\n\t" // 2    b = *ptr++    (T = 13)
       "st   %a[port], %[lo]"     "\n\t" // 2    PORT = lo     (T = 15)
-      "nop"                      "\n\t" // 1    nop           (T = 16)
+      "sei"                      "\n\t" // 1    sei           (T = 16)
       "sbiw %[count], 1"         "\n\t" // 2    i--           (T = 18)
        "brne head20"             "\n"   // 2    if(i != 0) -> (next byte)
       : [port]  "+e" (d->port),

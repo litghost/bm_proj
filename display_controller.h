@@ -12,17 +12,25 @@ typedef enum {
 
 typedef enum {
     COLOR_BLINK,
+    RAINBOW,
 } disp_mode_t;
 
 typedef struct {
     disp_mode_t mode;
-    uint8_t color[4];
 
     uint8_t pix_buf[BUF_SIZE(NUM_LED, SK6812RGBW)];
     neo_drive_t d;
 
     swtimer_t t;
+    
+    /* Blink vars */
+    uint8_t color[4];
     bool light;
+
+    /* Rainbow vars */
+    unsigned int firstPixelHue; // Color for the first pixel in the string
+    unsigned int frameAdvance;
+    unsigned int pixelAdvance;
 } display_t;
 
 void disp_init(display_t * d);
