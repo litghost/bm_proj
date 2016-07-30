@@ -23,6 +23,7 @@ typedef struct
 
 void swtimer_setup(void);
 void swtimer_set(swtimer_t * s, uint32_t expiration);
+void swtimer_restart(swtimer_t * s, uint32_t expiration);
 int swtimer_is_expired(swtimer_t * s);
 
 uint32_t swtimer_now_usec();

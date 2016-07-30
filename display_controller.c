@@ -64,6 +64,9 @@ static void set_color(display_t * d, size_t pix, uint8_t r, uint8_t g, uint8_t b
 }
 
 static void rainbowCycle(display_t * d) {
+    if(!swtimer_is_expired(&d->t)) return;
+    swtimer_restart(&d->t, 16000);
+
     // Hue is a number between 0 and 3*256 than defines a mix of r->g->b where
     // hue of 0 = Full red
     // hue of 128 = 1/2 red and 1/2 green

@@ -95,6 +95,12 @@ void swtimer_set(swtimer_t * s, uint32_t expiration)
 	s->expiration = swtimer_now_usec() + expiration;
 }
 
+void swtimer_restart(swtimer_t * s, uint32_t expiration)
+{
+	s->state = SWTIMER_SET;
+	s->expiration = s->expiration + expiration;
+}
+
 int swtimer_is_expired(swtimer_t * s)
 {
 	if(s->state == SWTIMER_SET && swtimer_now_usec() > s->expiration)
