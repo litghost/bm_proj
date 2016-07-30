@@ -1,3 +1,11 @@
+*.lst
+*.lss
+*.eep
+**/.dep
+*.sym
+*.bin
+*.map
+*.orig
 # Object files
 *.o
 *.ko
