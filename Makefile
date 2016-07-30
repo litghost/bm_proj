@@ -49,4 +49,5 @@ load: bm_proj.elf
 
 .PHONY: clean
 clean:
-	rm *.elf
+	rm -f *.elf *.map *.bin *.pyc
+	make -C wireless_bootloader clean
