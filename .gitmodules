@@ -1,0 +1,3 @@
+[submodule "xbee_lib"]
+	path = xbee_lib
+	url = git@github.com:litghost/xbee_lib.git

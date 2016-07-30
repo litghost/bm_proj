@@ -1,4 +1,4 @@
-XBEE_LIB = ../xbee_lib
+XBEE_LIB = xbee_lib
 
 HEADERS = \
 	uart.h \
