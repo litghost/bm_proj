@@ -192,10 +192,13 @@ def start_application(xbee, remote_addr):
             time.sleep(10)
             continue
 
+DEFAULT_PORT = '/dev/ttyUSB0'
+DEFAULT_ADDR = '0013A2004124FFB5'
+
 def main():
     parser = argparse.ArgumentParser(description='Load application on ATMEGA via XBee')
-    parser.add_argument('--port', default='/dev/ttyUSB0')
-    parser.add_argument('--remote_addr', default='0013A20040FC8CCB')
+    parser.add_argument('--port', default=DEFAULT_PORT)
+    parser.add_argument('--remote_addr', default=DEFAULT_ADDR)
     parser.add_argument('--retries', type=int, default=10)
     parser.add_argument('--write-app')
     #def write_application(port, remote_addr, data, retries):
