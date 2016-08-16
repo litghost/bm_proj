@@ -13,6 +13,8 @@ typedef enum {
 typedef enum {
     COLOR_BLINK,
     RAINBOW,
+    SINGLE,
+    SOLID,
 } disp_mode_t;
 
 typedef struct {
@@ -31,9 +33,12 @@ typedef struct {
     unsigned int firstPixelHue; // Color for the first pixel in the string
     unsigned int frameAdvance;
     unsigned int pixelAdvance;
+
+    uint16_t idx;
 } display_t;
 
 void disp_init(display_t * d);
 void disp_service(display_t * d);
+void disp_set_one(display_t * d, uint16_t idx);
 
 #endif /* _DISPLAY_CONTROLLER_H_ */

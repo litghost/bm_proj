@@ -8,16 +8,16 @@ void disp_init(display_t * d)
     memset(d, 0, sizeof(*d));
 
     d->mode = COLOR_BLINK;
-    d->color[0] = 0x00;
+    d->color[0] = 0x10;
     d->color[1] = 0x10;
     d->color[2] = 0x10;
-    d->color[3] = 0;
+    d->color[3] = 0x10;
     swtimer_set(&d->t, 1000000);
 
-    d->mode = RAINBOW;
+    /*d->mode = RAINBOW;
     d->frameAdvance = 20;
     d->pixelAdvance = 5;
-    swtimer_set(&d->t, 16000);
+    swtimer_set(&d->t, 16000);*/
 
     neo_drive_init(&d->d, 80, &PORTD, &DDRD, _BV(3));
 
@@ -105,6 +105,31 @@ static void rainbowCycle(display_t * d) {
     while(neo_drive_service(&d->d) != NEO_COMPLETE) {}
 }
 
+static void disp_show_one(display_t * d) {
+    memset(d->pix_buf, 0x00, sizeof(d->pix_buf));
+    d->pix_buf[d->idx*PIXEL_SIZE(PIX)+0] = 0x00;
+    d->pix_buf[d->idx*PIXEL_SIZE(PIX)+1] = 0x00;
+    d->pix_buf[d->idx*PIXEL_SIZE(PIX)+2] = 0x00;
+    d->pix_buf[d->idx*PIXEL_SIZE(PIX)+3] = 0xFF;
+
+    neo_drive_start_show(&d->d, sizeof(d->pix_buf), d->pix_buf);
+    while(neo_drive_service(&d->d) != NEO_COMPLETE) {}
+}
+
+
+static void disp_solid_color(display_t * d) {
+	for(size_t i = 0; i < NUM_LED; ++i)
+	{
+        d->pix_buf[i*PIXEL_SIZE(PIX)+0] = d->color[0];
+        d->pix_buf[i*PIXEL_SIZE(PIX)+1] = d->color[1];
+        d->pix_buf[i*PIXEL_SIZE(PIX)+2] = d->color[2];
+        d->pix_buf[i*PIXEL_SIZE(PIX)+3] = d->color[3];
+	}
+
+    neo_drive_start_show(&d->d, sizeof(d->pix_buf), d->pix_buf);
+    while(neo_drive_service(&d->d) != NEO_COMPLETE) {}
+}
+
 void disp_service(display_t * d)
 {
     switch(d->mode)
@@ -115,7 +140,18 @@ void disp_service(display_t * d)
     case RAINBOW:
         rainbowCycle(d);
         break;
+    case SINGLE:
+        disp_show_one(d);
+        break;
+    case SOLID:
+        disp_solid_color(d);
+        break;
     }
 
 }
 
+void disp_set_one(display_t * d, uint16_t idx)
+{
+    d->mode = SINGLE;
+    d->idx = idx;
+}
