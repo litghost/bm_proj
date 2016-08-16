@@ -234,10 +234,10 @@ void uart_tx_interrupt(int n)
     }
     else
     {
-        *uart->udr = (uint8_t)ret;
-
         /* Just started a new transmition, clear TX complete */
-        *uart->ucsra &= ~_BV(TXC0);
+        *uart->ucsra |= _BV(TXC0);
+
+        *uart->udr = (uint8_t)ret;
     }
 }
 
