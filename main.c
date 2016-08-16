@@ -341,6 +341,7 @@ static int set_baudrate(uint32_t baudrate)
 int main(void)
 {
     stdout = &mystdout;
+    stderr = &mystdout;
 
     swtimer_setup();
 

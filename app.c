@@ -2,6 +2,7 @@
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
 #include <stdio.h>
+#include <assert.h>
 #include <string.h>
 #include <util/crc16.h>
 #include <util/delay.h>
@@ -20,13 +21,14 @@ static uart_t u3;
 static uint8_t tx3_buf[256];
 static uint8_t rx3_buf[128];
 
-static display_t d;
 
 static xbee_interface_t xbee;
 static xbee_uart_interface_t xbee_uart;
 static uint8_t xbee_buf[256];
 static uint8_t frame[128];
 static xbee_parsed_frame_t parsed_frame;
+
+static display_t d;
 
 int uart0_put(char c, FILE *f)
 {
@@ -39,7 +41,15 @@ int uart0_put(char c, FILE *f)
     return 0;
 }
 
+int uart0_put_wait(char c, FILE *f) 
+{
+    int ret = uart0_put(c, f);
+    while(buf_get_level(&u0.tx_buf) > 0) {};
+    return ret;
+}
+
 static FILE mystdout = FDEV_SETUP_STREAM(uart0_put, NULL, _FDEV_SETUP_WRITE);
+static FILE mystderr = FDEV_SETUP_STREAM(uart0_put_wait, NULL, _FDEV_SETUP_WRITE);
 
 static int xbee_uart_write(void * ptr, const void * buf, size_t n)
 {
@@ -116,7 +126,8 @@ static void send_reply(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_fram
 
 extern int start_boot(void) __attribute__((noreturn));
 
-static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame)
+void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame);
+void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_frame)
 {
     size_t packet_size = parsed_frame->frame.receive.packet_size;
     const uint8_t * packet_data = parsed_frame->frame.receive.packet_data;
@@ -141,16 +152,25 @@ static void handle_packet(xbee_interface_t * xbee, xbee_parsed_frame_t *parsed_f
         cli();
         start_boot();
         break;
+    case OP_APP_OP:
+        if(packet_size != 3)
+        {
+            REPLY("wrong size");
+            return;
+        }
+
+        uint16_t idx = packet_data[1] << 8 | packet_data[2];
+        disp_set_one(&d, idx);
+        REPLY("ok");
+        break;
     default:
         REPLY("unknown op");
-
+        break;
     }
 }
 
 int main(void)
 {
-    stdout = &mystdout;
-
     swtimer_setup();
 
     uart_init(&u0, 0, 
@@ -166,7 +186,11 @@ int main(void)
     uart_set_hardware_flow(&u3, E, 3, G, 5);
     uart_enable(&u3);
 
+    stdout = &mystdout;
+    stderr = &mystderr;
     sei();
+
+    printf("Starting app\n");
 
     xbee_uart.ptr = &u3;
     xbee_uart.write = xbee_uart_write;
@@ -199,6 +223,8 @@ int main(void)
         break;
     }
 
+    printf("Entering main loop\n");
+
     while(true) {
         uart_service(&u0);
         uart_service(&u3);
@@ -230,5 +256,7 @@ int main(void)
             }
         }
     }
+
+    printf("Left main loop\n");
 }
 
